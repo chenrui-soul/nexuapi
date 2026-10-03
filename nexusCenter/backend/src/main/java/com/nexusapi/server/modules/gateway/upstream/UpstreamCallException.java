@@ -9,6 +9,8 @@ public class UpstreamCallException extends RuntimeException {
     private final boolean retryable;
     private final String safeSummary;
     private final Integer upstreamStatus;
+    /** 上游明确拒绝图片 quality 参数时，图片客户端可以做一次字段降级重试。 */
+    private final boolean qualityUnsupported;
 
     public UpstreamCallException(
             HttpStatus clientStatus,
@@ -18,12 +20,25 @@ public class UpstreamCallException extends RuntimeException {
             Integer upstreamStatus,
             Throwable cause
     ) {
+        this(clientStatus, clientCode, retryable, safeSummary, upstreamStatus, false, cause);
+    }
+
+    public UpstreamCallException(
+            HttpStatus clientStatus,
+            String clientCode,
+            boolean retryable,
+            String safeSummary,
+            Integer upstreamStatus,
+            boolean qualityUnsupported,
+            Throwable cause
+    ) {
         super(safeSummary, cause);
         this.clientStatus = clientStatus;
         this.clientCode = clientCode;
         this.retryable = retryable;
         this.safeSummary = safeSummary;
         this.upstreamStatus = upstreamStatus;
+        this.qualityUnsupported = qualityUnsupported;
     }
 
     public HttpStatus clientStatus() { return clientStatus; }
@@ -31,4 +46,5 @@ public class UpstreamCallException extends RuntimeException {
     public boolean retryable() { return retryable; }
     public String safeSummary() { return safeSummary; }
     public Integer upstreamStatus() { return upstreamStatus; }
+    public boolean qualityUnsupported() { return qualityUnsupported; }
 }

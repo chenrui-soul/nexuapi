@@ -27,8 +27,10 @@ import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLException;
@@ -253,6 +255,28 @@ public class OpenAiUpstreamClient {
             List<String> imageUrls
     ) {
         String credential = decrypt(route);
+        try {
+            return imageGenerationOnce(route, credential, fields, images, imageUrls);
+        } catch (UpstreamCallException exception) {
+            // 一些 OpenAI-compatible 图片渠道只支持自己的质量枚举，或完全不接受 quality。
+            // 400/422 且错误明确指向 quality 时，去掉这个可选字段重试一次；
+            // 此时上游尚未返回成功结果，平台只会完成一次计费和一次渠道尝试记录。
+            if (!exception.qualityUnsupported() || fields == null || !fields.containsKey("quality")) {
+                throw exception;
+            }
+            Map<String, String> compatibleFields = new LinkedHashMap<>(fields);
+            compatibleFields.remove("quality");
+            return imageGenerationOnce(route, credential, compatibleFields, images, imageUrls);
+        }
+    }
+
+    private JsonNode imageGenerationOnce(
+            RuntimeRouteRow route,
+            String credential,
+            Map<String, String> fields,
+            List<UploadPart> images,
+            List<String> imageUrls
+    ) {
         if (images == null || images.isEmpty()) {
             // 部分图片渠道（包括当前 gpt-image-2 上游）在无参考图时只接受 JSON；
             // 只有携带参考图时才使用 multipart，避免把 multipart 边界交给 JSON 解析器。
@@ -549,8 +573,22 @@ public class OpenAiUpstreamClient {
                 retryable,
                 "upstream_http_" + upstreamStatus,
                 upstreamStatus,
+                (upstreamStatus == 400 || upstreamStatus == 422) && isQualityUnsupported(body),
                 null
         );
+    }
+
+    /** 只把明确的质量参数兼容错误标记给图片降级逻辑，不暴露上游原始错误正文。 */
+    private boolean isQualityUnsupported(String body) {
+        if (body == null || body.isBlank()) return false;
+        String normalized = body.toLowerCase(Locale.ROOT);
+        if (!normalized.contains("quality")) return false;
+        return normalized.contains("unsupported")
+                || normalized.contains("not supported")
+                || normalized.contains("not in")
+                || normalized.contains("invalid")
+                || normalized.contains("不支持")
+                || normalized.contains("不在支持范围");
     }
 
     private String safeUpstreamCode(String body, String fallback) {
