@@ -1,0 +1,48 @@
+# Workspace artifacts
+.ai-memory/
+.chrome-*/
+cloudflared-extracted*/
+jarinspect/
+references/
+scripts/docker-migration-*
+*.tar.gz
+*.jar
+*.dump
+**/database.dump
+**/pg_dump*.sql
+*.log
+*.png
+*.svg
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Generated dependencies and builds
+**/node_modules/
+**/__pycache__/
+**/target/
+**/.next/
+**/dist/
+**/.sites-runtime/
+**/.wrangler/
+**/coverage/
+**/scripts/log/
+**/scripts/release/
+**/releases/
+**/.ai-memory/
+**/*-dist-*/
+**/*.zip
+**/*.tar
+**/*.tsbuildinfo
+**/captcha-response.json
+**/cp.txt
+**/platform-*-diff.txt
+
+# Local IDE files
+.idea/
+.vscode/
+*.iml

@@ -1,0 +1,233 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  # 高并发入口参数：通过环境变量按实例容量覆盖，避免默认 200 工作线程和较小接入队列
+  # 在突发流量时直接拒绝 TCP 连接；实际数据库/渠道并发仍由各自限额控制。
+  tomcat:
+    threads:
+      max: ${SERVER_TOMCAT_MAX_THREADS:400}
+      min-spare: ${SERVER_TOMCAT_MIN_SPARE_THREADS:20}
+    max-connections: ${SERVER_TOMCAT_MAX_CONNECTIONS:2000}
+    accept-count: ${SERVER_TOMCAT_ACCEPT_COUNT:1000}
+    connection-timeout: ${SERVER_TOMCAT_CONNECTION_TIMEOUT:15s}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        name: NEXUS_SESSION
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:false}
+        same-site: lax
+
+spring:
+  application:
+    name: nexus-api-server
+  mvc:
+    # SSE/StreamingResponseBody 请求不能使用 Spring MVC 默认的短异步超时。
+    # 必须与 Nginx 的长连接窗口一致，否则上游仍在生成时后端会提前关闭客户端连接。
+    async:
+      request-timeout: ${SERVER_ASYNC_REQUEST_TIMEOUT:3600s}
+  threads:
+    # 虚拟线程需在数据库连接池和并发闸门扩容后再开启；默认关闭避免请求瞬时压垮 Hikari 连接池。
+    virtual:
+      enabled: ${JAVA_VIRTUAL_THREADS_ENABLED:false}
+  servlet:
+    multipart:
+      # 图片能力在 Controller 内部按单张 20MB、总计 50MB 校验；这里必须先放行到业务层。
+      max-file-size: ${MULTIPART_MAX_FILE_SIZE:20MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:55MB}
+      # 延迟到参数解析阶段再读取 multipart，确保超限异常仍由已匹配的 OpenAI 能力入口统一转换。
+      resolve-lazily: true
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/nexus_api}
+    username: ${DB_USERNAME:nexus}
+    password: ${DB_PASSWORD:nexus-local-password}
+    hikari:
+      # 单实例默认 40 条连接，避免高并发请求全部排队在 20 条连接上；
+      # 必须结合 PostgreSQL max_connections 和实例数一起调整。
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:40}
+      minimum-idle: ${DB_POOL_MIN_IDLE:10}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:5000}
+      validation-timeout: 1000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-migration-naming: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:nexus-local-password}
+      timeout: 2s
+  mail:
+    # 找回密码邮件只从部署环境读取 SMTP 配置；未配置时接口返回统一的服务不可用错误。
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:25}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:false}
+      mail.smtp.connectiontimeout: ${MAIL_CONNECTION_TIMEOUT_MS:3000}
+      mail.smtp.timeout: ${MAIL_TIMEOUT_MS:5000}
+      mail.smtp.writetimeout: ${MAIL_WRITE_TIMEOUT_MS:5000}
+  session:
+    store-type: redis
+    timeout: ${SESSION_TIMEOUT:30m}
+    redis:
+      namespace: nexus:session
+      repository-type: indexed
+      cleanup-cron: "0 * * * * *"
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: UTC
+
+mybatis-plus:
+  type-handlers-package: com.nexusapi.server.common.persistence
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_uuid
+      logic-delete-field: deletedAt
+
+nexus:
+  security:
+    allowed-origins: ${NEXUS_ALLOWED_ORIGINS:http://localhost:3000}
+    field-encryption-key: ${NEXUS_FIELD_ENCRYPTION_KEY}
+    lookup-hmac-key: ${NEXUS_LOOKUP_HMAC_KEY}
+  auth:
+    captcha-ttl: ${AUTH_CAPTCHA_TTL:5m}
+    captcha-max-attempts: ${AUTH_CAPTCHA_MAX_ATTEMPTS:5}
+    captcha-issues-per-minute: ${AUTH_CAPTCHA_ISSUES_PER_MINUTE:30}
+    login-max-failures: ${AUTH_LOGIN_MAX_FAILURES:8}
+    login-failure-window: ${AUTH_LOGIN_FAILURE_WINDOW:15m}
+    session-ttl: ${AUTH_SESSION_TTL:30m}
+    remember-session-ttl: ${AUTH_REMEMBER_SESSION_TTL:30d}
+    # 邮件验证码只保存 HMAC 摘要，过期或校验成功后立即从 Redis 删除。
+    password-reset-ttl: ${AUTH_PASSWORD_RESET_TTL:10m}
+    password-reset-max-attempts: ${AUTH_PASSWORD_RESET_MAX_ATTEMPTS:5}
+    password-reset-requests-per-hour: ${AUTH_PASSWORD_RESET_REQUESTS_PER_HOUR:5}
+    password-reset-mail-enabled: ${AUTH_PASSWORD_RESET_MAIL_ENABLED:false}
+    password-reset-mail-from: ${AUTH_PASSWORD_RESET_MAIL_FROM:no-reply@nexus.local}
+  api-key:
+    active-hash-version: ${API_KEY_ACTIVE_HASH_VERSION:1}
+    hmac-keys:
+      1: ${NEXUS_API_KEY_HMAC_KEY_V1}
+    max-per-user: ${API_KEY_MAX_PER_USER:20}
+    create-per-user-per-minute: ${API_KEY_CREATE_PER_USER_PER_MINUTE:5}
+    create-per-ip-per-minute: ${API_KEY_CREATE_PER_IP_PER_MINUTE:20}
+  system-access-token:
+    # 系统访问令牌使用独立密钥，不能与用户 API 令牌或上游 APIKey 混用。
+    active-hash-version: ${SYSTEM_ACCESS_TOKEN_ACTIVE_HASH_VERSION:1}
+    hmac-keys:
+      1: ${NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1}
+    max-per-user: ${SYSTEM_ACCESS_TOKEN_MAX_PER_USER:10}
+  gateway:
+    connect-timeout: ${UPSTREAM_CONNECT_TIMEOUT:5s}
+    response-timeout: ${UPSTREAM_RESPONSE_TIMEOUT:120s}
+    max-connections: ${UPSTREAM_MAX_CONNECTIONS:500}
+    pending-acquire-max-count: ${UPSTREAM_PENDING_ACQUIRE_MAX_COUNT:1000}
+    # 单文本渠道最多尝试四次；Responses 完整验证 response.completed 后才向客户端提交。
+    max-attempts: ${UPSTREAM_MAX_ATTEMPTS:4}
+    default-max-output-tokens: ${GATEWAY_DEFAULT_MAX_OUTPUT_TOKENS:2048}
+    max-in-memory-bytes: ${GATEWAY_MAX_IN_MEMORY_BYTES:8388608}
+    quota-key-ttl: ${GATEWAY_QUOTA_KEY_TTL:5m}
+    text-queue-max-wait: ${GATEWAY_TEXT_QUEUE_MAX_WAIT:30s}
+  pricing:
+    # v1：旧计费；shadow：仍按旧计费结算并记录 V2 对比；v2：使用已发布价格版本。
+    # 价格版本已完成验收；默认使用 V2，仍可通过环境变量显式回退到 v1/shadow。
+    mode: ${PRICING_ENGINE_MODE:v2}
+    shadow-warning-threshold: ${PRICING_SHADOW_WARNING_THRESHOLD:0.000000000001}
+  payment:
+    # 仅用于本地/验收环境跑通充值状态机；正式支付接入前默认关闭。
+    mock-enabled: ${PAYMENT_MOCK_ENABLED:false}
+    points-per-currency: ${PAYMENT_POINTS_PER_CURRENCY:0.5}
+    alipay:
+      enabled: ${ALIPAY_ENABLED:false}
+      app-id: ${ALIPAY_APP_ID:}
+      private-key: ${ALIPAY_PRIVATE_KEY:}
+      alipay-public-key: ${ALIPAY_PUBLIC_KEY:}
+      seller-id: ${ALIPAY_SELLER_ID:}
+      gateway: ${ALIPAY_GATEWAY:https://openapi.alipay.com/gateway.do}
+      notify-url: ${ALIPAY_NOTIFY_URL:}
+      return-url: ${ALIPAY_RETURN_URL:}
+      sign-type: ${ALIPAY_SIGN_TYPE:RSA2}
+  health:
+    # Wave 7A 默认启用主动探测；多实例通过 Redis 全局锁保证每轮只执行一次。
+    enabled: ${HEALTH_PROBE_ENABLED:true}
+    probe-interval: ${HEALTH_PROBE_INTERVAL:60s}
+    initial-delay: ${HEALTH_PROBE_INITIAL_DELAY:15s}
+    probe-timeout: ${HEALTH_PROBE_TIMEOUT:5s}
+    # 同一分组持续故障时，冷却窗口内只累计抑制次数，不重复轰炸管理员。
+    alert-cooldown: ${HEALTH_ALERT_COOLDOWN:30m}
+    lock-ttl: ${HEALTH_PROBE_LOCK_TTL:3m}
+    batch-size: ${HEALTH_PROBE_BATCH_SIZE:20}
+  dashboard:
+    # Wave 8 使用 PostgreSQL 事务锁串行化聚合，多实例不会重复刷新同一时间窗。
+    enabled: ${DASHBOARD_AGGREGATION_ENABLED:true}
+    refresh-interval: ${DASHBOARD_REFRESH_INTERVAL:5m}
+    initial-delay: ${DASHBOARD_INITIAL_DELAY:30s}
+    backfill-days: ${DASHBOARD_BACKFILL_DAYS:90}
+    recent-days: ${DASHBOARD_RECENT_DAYS:2}
+    recent-hours: ${DASHBOARD_RECENT_HOURS:48}
+  model-sync:
+    # 接口地址只允许通过服务端环境变量覆盖，管理端不能编辑，避免形成任意 URL 请求入口。
+    market-url: ${MODEL_SYNC_MARKET_URL:https://caicaiapi.cloud/api/models/market}
+    price-groups-url: ${MODEL_SYNC_PRICE_GROUPS_URL:https://caicaiapi.cloud/api/price-groups/visible}
+    # 上游分组凭证按当前部署要求直接配置；客户端会自动添加 Bearer 前缀。
+    price-group-token: st-adc53034e024b69b7338e4702593337a91ba3877d5117091
+    source-supplier-code: ${MODEL_SYNC_SOURCE_SUPPLIER_CODE:caicai}
+    request-timeout: ${MODEL_SYNC_REQUEST_TIMEOUT:15s}
+    lock-ttl: ${MODEL_SYNC_LOCK_TTL:10m}
+    page-size: ${MODEL_SYNC_PAGE_SIZE:100}
+    max-models: ${MODEL_SYNC_MAX_MODELS:5000}
+    max-retries: ${MODEL_SYNC_MAX_RETRIES:1}
+    scheduler-poll-interval: ${MODEL_SYNC_SCHEDULER_POLL_INTERVAL:60s}
+    scheduler-initial-delay: ${MODEL_SYNC_SCHEDULER_INITIAL_DELAY:30s}
+  file-upload:
+    # 独立文件上传不参与模型路由和计费；凭证只能由部署环境注入。
+    endpoint: ${FILE_UPLOAD_ENDPOINT:https://caicaiapi.cloud/v1/files/upload}
+    token: ${FILE_UPLOAD_TOKEN:}
+    request-timeout: ${FILE_UPLOAD_REQUEST_TIMEOUT:90s}
+    max-file-bytes: ${FILE_UPLOAD_MAX_FILE_BYTES:20971520}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  show-actuator: false
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      upstream-default:
+        sliding-window-size: 20
+        minimum-number-of-calls: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  retry:
+    instances:
+      upstream-default:
+        max-attempts: 2
+        wait-duration: 100ms

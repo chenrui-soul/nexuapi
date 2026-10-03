@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS device_activation_keys_device_code_uk;

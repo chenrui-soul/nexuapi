@@ -1,0 +1,70 @@
+name: nexus-api
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexus_api}
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus-local-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-nexus-local-password}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-nexus-local-password}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-nexus_api}
+      DB_USERNAME: ${POSTGRES_USER:-nexus}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-nexus-local-password}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-nexus-local-password}
+      NEXUS_FIELD_ENCRYPTION_KEY: ${NEXUS_FIELD_ENCRYPTION_KEY:?NEXUS_FIELD_ENCRYPTION_KEY must be set}
+      NEXUS_LOOKUP_HMAC_KEY: ${NEXUS_LOOKUP_HMAC_KEY:?NEXUS_LOOKUP_HMAC_KEY must be set}
+      NEXUS_API_KEY_HMAC_KEY_V1: ${NEXUS_API_KEY_HMAC_KEY_V1:?NEXUS_API_KEY_HMAC_KEY_V1 must be set}
+      # 系统访问令牌使用独立 HMAC 密钥，禁止与用户 API 令牌密钥复用。
+      NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1: ${NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1:?NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1 must be set}
+      # 计费正式使用已发布价格版本；未显式覆盖时不再回退到旧版零价格字段。
+      PRICING_ENGINE_MODE: ${PRICING_ENGINE_MODE:-v2}
+      NEXUS_PRICE_GROUP_SYNC_TOKEN: ${NEXUS_PRICE_GROUP_SYNC_TOKEN:-}
+      MODEL_SYNC_SOURCE_SUPPLIER_CODE: ${MODEL_SYNC_SOURCE_SUPPLIER_CODE:-caicai}
+      NEXUS_ALLOWED_ORIGINS: ${NEXUS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:

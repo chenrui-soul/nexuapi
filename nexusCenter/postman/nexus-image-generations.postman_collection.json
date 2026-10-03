@@ -1,0 +1,86 @@
+{
+  "info": {
+    "name": "Nexus API - Image Generations and Editing",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "调用 /v1/images/generations。普通生成支持 multipart/form-data；URL 引用图编辑支持 application/json。"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://nexusapi.center" },
+    { "key": "apiKey", "value": "在此填写特价分组 API Key" },
+    { "key": "group", "value": "gpt_tj" },
+    { "key": "requestId", "value": "" },
+    { "key": "referenceImageUrl", "value": "https://nexusapi.center/dashboard-ai-light-v3.png" }
+  ],
+  "item": [
+    {
+      "name": "生成图片 - multipart/form-data",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}", "type": "text" },
+          { "key": "X-Nexus-Group", "value": "{{group}}", "type": "text" },
+          { "key": "X-Request-Id", "value": "{{requestId}}", "type": "text", "disabled": true }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "model", "value": "gpt-image-2.5", "type": "text" },
+            { "key": "prompt", "value": "一张电影感黄昏城市照片", "type": "text" },
+            { "key": "n", "value": "1", "type": "text" },
+            { "key": "quality", "value": "medium", "type": "text" },
+            { "key": "aspect_ratio", "value": "1:1", "type": "text" },
+            { "key": "resolution", "value": "1k", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/v1/images/generations",
+          "host": ["{{baseUrl}}"],
+          "path": ["v1", "images", "generations"]
+        },
+        "description": "必填：model、prompt。可选：n、quality、aspect_ratio、resolution（1k 或 2k）。"
+      },
+      "response": []
+    },
+    {
+      "name": "编辑图片 - JSON URL 引用图",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{apiKey}}", "type": "text" },
+          { "key": "X-Nexus-Group", "value": "{{group}}", "type": "text" },
+          { "key": "X-Request-Id", "value": "{{requestId}}", "type": "text", "disabled": true },
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"model\": \"gpt-image-2.5\",\n  \"prompt\": \"保留主体，改为黄昏背景\",\n  \"aspect_ratio\": \"1:1\",\n  \"images\": [\n    \"{{referenceImageUrl}}\"\n  ]\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/v1/images/generations",
+          "host": ["{{baseUrl}}"],
+          "path": ["v1", "images", "generations"]
+        },
+        "description": "images 最多 5 个绝对 HTTP/HTTPS URL。平台只转发 URL，不下载引用图。"
+      },
+      "response": [
+        {
+          "name": "200 - image edited",
+          "originalRequest": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"gpt-image-2.5\",\n  \"prompt\": \"保留主体，改为黄昏背景\",\n  \"aspect_ratio\": \"1:1\",\n  \"images\": [\"{{referenceImageUrl}}\"]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/v1/images/generations" }
+          },
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"created\": 1789671456,\n  \"data\": [\n    {\n      \"url\": \"https://example.com/edited.png\"\n    }\n  ],\n  \"usage\": {\n    \"total_tokens\": 1835,\n    \"input_tokens\": 1534,\n    \"output_tokens\": 301\n  },\n  \"model\": \"gpt-image-2.5\"\n}"
+        }
+      ]
+    }
+  ]
+}

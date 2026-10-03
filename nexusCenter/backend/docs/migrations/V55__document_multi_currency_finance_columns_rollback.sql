@@ -1,0 +1,28 @@
+-- V55 仅补充数据库注释，无业务数据；回滚时清除注释即可。
+BEGIN;
+COMMENT ON COLUMN currency_exchange_rates.id IS NULL;
+COMMENT ON COLUMN currency_exchange_rates.created_at IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.id IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.supplier_id IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.file_name IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.period_from IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.period_to IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.row_count IS NULL;
+COMMENT ON COLUMN supplier_billing_imports.imported_at IS NULL;
+COMMENT ON COLUMN supplier_billing_items.id IS NULL;
+COMMENT ON COLUMN supplier_billing_items.import_id IS NULL;
+COMMENT ON COLUMN supplier_billing_items.billed_at IS NULL;
+COMMENT ON COLUMN supplier_billing_items.model_name IS NULL;
+COMMENT ON COLUMN supplier_billing_items.quantity IS NULL;
+COMMENT ON COLUMN supplier_billing_items.amount IS NULL;
+COMMENT ON COLUMN supplier_billing_items.currency IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.id IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.supplier_id IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.billing_item_id IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.request_id IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.local_amount IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.local_currency IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.provider_amount IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.provider_currency IS NULL;
+COMMENT ON COLUMN financial_reconciliation_records.created_at IS NULL;
+COMMIT;

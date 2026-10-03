@@ -1,0 +1,158 @@
+name: nexus-center-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      nexus_shared: {}
+      legacy_nexus:
+        aliases:
+          - nexus-api-prod-postgres-1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    networks:
+      nexus_shared: {}
+      legacy_nexus:
+        aliases:
+          - redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Shared 3.5 GiB host: bound heap/native memory and preserve OS/DB cache headroom.
+    mem_limit: ${APP_MEMORY_LIMIT:-1536m}
+    environment:
+      JAVA_TOOL_OPTIONS: ${APP_JAVA_TOOL_OPTIONS:--Xms256m -Xmx768m -XX:MaxDirectMemorySize=192m}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-16}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-4}
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NEXUS_FIELD_ENCRYPTION_KEY: ${NEXUS_FIELD_ENCRYPTION_KEY}
+      NEXUS_LOOKUP_HMAC_KEY: ${NEXUS_LOOKUP_HMAC_KEY}
+      NEXUS_API_KEY_HMAC_KEY_V1: ${NEXUS_API_KEY_HMAC_KEY_V1}
+      NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1: ${NEXUS_SYSTEM_ACCESS_TOKEN_HMAC_KEY_V1}
+      PRICING_ENGINE_MODE: v2
+      NEXUS_PRICE_GROUP_SYNC_TOKEN: ${NEXUS_PRICE_GROUP_SYNC_TOKEN:-}
+      MODEL_SYNC_SOURCE_SUPPLIER_CODE: caicai
+      FILE_UPLOAD_ENDPOINT: ${FILE_UPLOAD_ENDPOINT:-https://caicaiapi.cloud/v1/files/upload}
+      FILE_UPLOAD_TOKEN: ${FILE_UPLOAD_TOKEN:-}
+      FILE_UPLOAD_REQUEST_TIMEOUT: ${FILE_UPLOAD_REQUEST_TIMEOUT:-90s}
+      FILE_UPLOAD_MAX_FILE_BYTES: ${FILE_UPLOAD_MAX_FILE_BYTES:-20971520}
+      NEXUS_ALLOWED_ORIGINS: ${NEXUS_ALLOWED_ORIGINS}
+      SESSION_COOKIE_SECURE: "true"
+      ALIPAY_ENABLED: ${ALIPAY_ENABLED:-false}
+      ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
+      ALIPAY_PRIVATE_KEY: ${ALIPAY_PRIVATE_KEY:-}
+      ALIPAY_PUBLIC_KEY: ${ALIPAY_PUBLIC_KEY:-}
+      ALIPAY_SELLER_ID: ${ALIPAY_SELLER_ID:-}
+      ALIPAY_GATEWAY: ${ALIPAY_GATEWAY:-https://openapi.alipay.com/gateway.do}
+      ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-}
+      ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-}
+    expose:
+      - "8080"
+    networks:
+      - nexus_internal
+      - nexus_shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL}
+    networks:
+      - nexus_internal
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      - nexus_internal
+      - nexus_shared
+    depends_on:
+      frontend:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+networks:
+  nexus_internal:
+    name: nexus-center-prod_internal
+  nexus_shared:
+    name: nexus-shared
+    external: true
+  legacy_nexus:
+    name: nexus-api-prod_default
+    external: true
+
+volumes:
+  postgres_data:
+    name: nexus-api-prod_postgres_data
+    external: true
+  redis_data:
+    name: nexus-api-prod_redis_data
+    external: true
